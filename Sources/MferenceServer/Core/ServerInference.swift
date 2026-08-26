@@ -227,15 +227,50 @@ public actor ServerModelSession: ServerInferenceBackend {
         case .resident:
             configSlots = RuntimeConfiguration.allowedExpertCacheSlots.max()!
         }
+        // PATCH LOCAL (experiencia de TTFT): o servidor nao expoe as afinacoes que o
+        // MferenceCLI tem, e que valeram +28% de debito nas medicoes. Ficam atras de
+        // variaveis de ambiente para poderem ser medidas A/B e desligadas.
+        let amb = ProcessInfo.processInfo.environment
+        let slotsAfinados = amb["MFERENCE_EXPERT_SLOTS"].flatMap(Int.init)
+        let usarSlots = slotsAfinados.map {
+            RuntimeConfiguration.allowedExpertCacheSlots.contains($0) ? $0 : configSlots
+        } ?? configSlots
+        let chunkAfinado = amb["MFERENCE_PREFILL_CHUNK"].flatMap(Int.init)
+        let usarChunk = chunkAfinado.map {
+            RuntimeConfiguration.allowedPrefillChunkTokens.contains($0) ? $0 : 128
+        } ?? 128
+        let rd: RDAdvicePolicyMode
+        switch amb["MFERENCE_RDADVISE"] {
+        case "adaptive": rd = .adaptive
+        case "bounded":  rd = .bounded
+        case "default":  rd = .default
+        default:         rd = .off
+        }
+        // `fullSha256` re-calcula o hash de cada ficheiro de expert no primeiro toque,
+        // dentro do prefill. O CLI evita isto com --verify trusted-receipt.
+        let integridade: ModelIntegrityPolicy =
+            amb["MFERENCE_TRUST_RECEIPT"] == "1" ? .sizeCheckTrustedReceipt : .fullSha256
+
         let runtime = RuntimeConfiguration(
-            expertCacheSlots: configSlots,
+            expertCacheSlots: usarSlots,
+            rdadvisePolicy: rd,
+            prefillChunkTokens: usarChunk,
             forceLogitsHead: true)
+        // PATCH LOCAL: sem isto, MFERENCE_EXPERT_SLOTS entrava na RuntimeConfiguration
+        // (e no digest) mas o streamer continuava com o streamingMode original — o env
+        // var era um botao solto. Medido em 2026-08-26: arena fixa em 40x128 MB com o
+        // env a 96 e a 128.
+        let modoStreaming: ExpertStreamingMode
+        switch streamingMode {
+        case .pread: modoStreaming = .pread(slotCount: usarSlots)
+        case .resident: modoStreaming = streamingMode
+        }
         let model = try Model.load(
             directoryURL: modelDirectory,
             device: context.device,
-            streamingMode: streamingMode,
+            streamingMode: modoStreaming,
             expertCachePolicy: runtime.modelExpertCachePolicy,
-            integrityPolicy: .fullSha256)
+            integrityPolicy: integridade)
         let forwardRuntime = try ForwardRunnerFactory.make(model: model,
                                                             context: context,
                                                             maxContext: maxContext,
