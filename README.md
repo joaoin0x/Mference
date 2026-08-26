@@ -69,19 +69,39 @@ the prompt-cache digest) but not the expert streamer, so the arena stayed at
 the family default regardless — verified by watching the per-layer slab size
 respond (96 → 162 MiB, 64 → 108 MiB).
 
-*Why expose the slot count at all?* Measured with the repo's own
-`run-benchmark.sh` (fresh process per run, discarded warmup, 2 measured reps,
-same host):
+This fork also widens the allowed slot values with 160, 192 and 256 for hosts
+with the RAM to use them (upstream's whitelist stops at 128).
 
-| Slots per layer | decode tok/s (medium-review) | decode tok/s (long-synthesis) | Peak RSS (CLI, 4k ctx) | Server writable set |
-|---|---|---|---|---|
-| 128 | 23.3 | 19.9 | ~5.0 GiB | — |
-| 96 (upstream default) | 22.8 | 18.5 | ~4.8 GiB | 7.4 GB |
-| 64 | 20.9 | 16.8 | ~3.9 GiB | **4.4 GB** |
+*Why expose the slot count at all?* Full sweep with the repo's own
+`run-benchmark.sh` (fresh process per run, discarded warmup, 2 measured reps
+per case, one back-to-back chain on an M4 24 GB under normal interactive use;
+free memory was 48–71% at each config start, and a repeated 64 at the end of
+the chain landed within ~7% of the first, so the round is internally
+consistent):
 
-On a 24 GB host that also runs Docker and friends, trading ~9% decode for 3 GB
-less swappable working set is what keeps the server responsive under system
-memory pressure — that is the configuration this fork runs in production.
+| Slots per layer | decode short | decode medium | decode long | Long prefill | Peak RSS (CLI, 4k ctx) | Expert arena (40 layers) |
+|---|---|---|---|---|---|---|
+| 32 | 14.0 | 11.7 | 9.7 | 49.6 s | 2.1 GiB | 2.2 GB |
+| 64 | 20.1 | 17.7 | 13.9 | 55.8 s | 3.8 GiB | 4.3 GB |
+| 96 (upstream default) | 21.0 | 19.7 | 18.1 | 54.7 s | 4.8 GiB | 6.5 GB |
+| 128 | 22.9 | 22.6 | 19.4 | 58.5 s | 5.0 GiB | 8.6 GB |
+| `resident` | 13.9 | 9.7 | **4.9** | **427.9 s** | 0.3 GiB | 0 (file-backed) |
+| 64 again (sentinel, end of chain) | 19.0 | 17.8 | 14.9 | 53.7 s | 3.9 GiB | 4.3 GB |
+
+Slot scaling is monotonic with diminishing returns: 64→96 buys +30% on
+long-form decode, 96→128 only +7%. And a warning worth a fork README:
+**`resident` collapses on RAM-constrained hosts.** The 17.7 GB Qwen 3.6 expert
+pool cannot fit in page cache on a 24 GB machine, so every cold expert arrives
+as ~16 KB page faults with none of the pread path's readahead — 7.8× slower
+long-prompt prefill and 4× slower decode, even though its measured footprint
+is the smallest of the table (file-backed clean pages barely register as RSS).
+`resident` is only the right call where the pool actually fits in RAM.
+
+Server-side (32k context), the writable set measured 7.4 GB at 96 slots vs
+4.4 GB at 64. On a 24 GB host that also runs Docker and friends, trading some
+decode speed for a smaller swappable working set is what keeps the server
+responsive under system memory pressure — this fork currently runs 64 in
+production.
 
 **2. Optional thinking mode for Qwen 3.6** — the checkpoint's own chat template
 opens a live `<think>` block, but Mference pins the family as non-thinking.
