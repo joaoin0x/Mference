@@ -24,7 +24,11 @@ public enum RuntimeExpertCachePolicy: String, Codable, Sendable {
 public struct RuntimeConfiguration: Sendable, Equatable {
     /// 96 and 128 are the near-resident rungs: large wired LFU sets for hosts
     /// with RAM to spare but not enough to cache the whole expert pool.
-    public static let allowedExpertCacheSlots = [8, 16, 24, 32, 64, 96, 128]
+    // 160/192/256 desbloqueados neste fork: anfitrioes com mais RAM (o proprio
+    // README upstream lista um M3 Ultra de 256 GB) tem margem para arenas maiores,
+    // e 256 = pool completo do Qwen 3.6 por layer. Em maquinas de 24 GB a arena
+    // de 256 slots (17,3 GB) nao cabe — ver a seccao de medicoes do README.
+    public static let allowedExpertCacheSlots = [8, 16, 24, 32, 64, 96, 128, 160, 192, 256]
     public static let allowedPrefillChunkTokens = [32, 64, 128, 256, 512, 1024, 2048, 4096]
 
     public let expertCacheSlots: Int

@@ -138,7 +138,8 @@ extension Args {
                                 bounded, or adaptive (default off).
       --expert-cache-slots <n|resident|auto>
                                 Routed-expert cache slots per layer: 8, 16,
-                                24, 32, 64, 96, 128, resident, or auto.
+                                24, 32, 64, 96, 128, 160, 192, 256,
+                                resident, or auto.
                                 resident maps every layer file once and skips
                                 the slot cache entirely. auto always uses the
                                 slot cache: Qwen gets 96 slots on hosts with
