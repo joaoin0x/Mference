@@ -41,7 +41,7 @@
 ## What this fork changes
 
 **1. Server runtime tuning via environment variables** — `MferenceServer` gains
-the knobs `MferenceCLI` already has, measured at +28% throughput on a 24 GB M4:
+the knobs `MferenceCLI` already has:
 
 | Variable | Effect | Upstream behaviour |
 |---|---|---|
@@ -50,20 +50,50 @@ the knobs `MferenceCLI` already has, measured at +28% throughput on a 24 GB M4:
 | `MFERENCE_PREFILL_CHUNK=512` | Prefill chunk size in tokens | Fixed 128 |
 | `MFERENCE_EXPERT_SLOTS=64` | Routed-expert cache slots per layer | Family default (96 for Qwen 3.6 on ≥24 GiB) |
 
-All default to upstream behaviour when unset. Includes a fix for the slot knob:
-the value reached `RuntimeConfiguration` (and the prompt-cache digest) but not
-the expert streamer, so the arena stayed at the family default regardless —
-verified by watching the per-layer slab size respond (96 → 162 MiB, 64 → 108 MiB).
+All default to upstream behaviour when unset.
+
+*Measured* — same ~2.8k-token prompt, back-to-back on an M4 24 GB, Qwen 3.6
+35B-A3B, 64-token completions, direct against the server:
+
+| Request | Upstream defaults | Tuned (vars above, 64 slots) | Speedup |
+|---|---|---|---|
+| First after start (expert verification + cold prefill) | 93.0 s | 44.7 s | **2.1×** |
+| Warm prefill, different prompt | 70.0 s | 39.6 s | **1.8×** |
+
+The tuned column runs with *fewer* slots than upstream's default (64 vs 96) and
+still wins — the gains come from receipt-based verification, adaptive rdadvise
+and the larger prefill chunk.
+
+Includes a fix for the slot knob: the value reached `RuntimeConfiguration` (and
+the prompt-cache digest) but not the expert streamer, so the arena stayed at
+the family default regardless — verified by watching the per-layer slab size
+respond (96 → 162 MiB, 64 → 108 MiB).
+
+*Why expose the slot count at all?* Measured with the repo's own
+`run-benchmark.sh` (fresh process per run, discarded warmup, 2 measured reps,
+same host):
+
+| Slots per layer | decode tok/s (medium-review) | decode tok/s (long-synthesis) | Peak RSS (CLI, 4k ctx) | Server writable set |
+|---|---|---|---|---|
+| 128 | 23.3 | 19.9 | ~5.0 GiB | — |
+| 96 (upstream default) | 22.8 | 18.5 | ~4.8 GiB | 7.4 GB |
+| 64 | 20.9 | 16.8 | ~3.9 GiB | **4.4 GB** |
+
+On a 24 GB host that also runs Docker and friends, trading ~9% decode for 3 GB
+less swappable working set is what keeps the server responsive under system
+memory pressure — that is the configuration this fork runs in production.
 
 **2. Optional thinking mode for Qwen 3.6** — the checkpoint's own chat template
 opens a live `<think>` block, but Mference pins the family as non-thinking.
 `MFERENCE_QWEN36_THINKING=1` switches the prompt suffix and the stop token
 together, per family, the way the eos/end-of-turn contract expects. Off by
-default.
+default: in our workload (meeting-minutes generation) it made generations
+several times longer (informally: ~650 s vs ~150 s for comparable analyses)
+without improving our fact-checklist scores.
 
 **3. Repack disk check counts APFS purgeable space** — `statfs` ignores
-purgeable space on macOS, so repacks refused to start with tens of recoverable
-GB on the volume. The check now also consults
+purgeable space on macOS: on a 24 GB Mac with ~30 GB purgeable, repacks refused
+to start despite the space being reclaimable. The check now also consults
 `volumeAvailableCapacityForImportantUsage` and takes the larger value.
 
 ---
