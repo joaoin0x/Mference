@@ -30,6 +30,44 @@
   <strong>Inkling-Small on the same host: 3.0–3.7 tok/s decode · 16.4% faster with native top-6 Metal</strong>
 </p>
 
+---
+
+> [!IMPORTANT]
+> **This is a fork** of [NeelM0906/Mference](https://github.com/NeelM0906/Mference)
+> carrying three small, opt-in patches — documented right here so nobody has to
+> diff the source to find out what changed. `main` tracks upstream untouched;
+> the patches live on the [`patches-locais`](../../tree/patches-locais) branch.
+
+## What this fork changes
+
+**1. Server runtime tuning via environment variables** — `MferenceServer` gains
+the knobs `MferenceCLI` already has, measured at +28% throughput on a 24 GB M4:
+
+| Variable | Effect | Upstream behaviour |
+|---|---|---|
+| `MFERENCE_TRUST_RECEIPT=1` | Verify experts by size + trusted receipt | Full SHA-256 of every expert on first touch, inside prefill |
+| `MFERENCE_RDADVISE=adaptive` | Expert read-ahead policy (`off`/`default`/`bounded`/`adaptive`) | Always off |
+| `MFERENCE_PREFILL_CHUNK=512` | Prefill chunk size in tokens | Fixed 128 |
+| `MFERENCE_EXPERT_SLOTS=64` | Routed-expert cache slots per layer | Family default (96 for Qwen 3.6 on ≥24 GiB) |
+
+All default to upstream behaviour when unset. Includes a fix for the slot knob:
+the value reached `RuntimeConfiguration` (and the prompt-cache digest) but not
+the expert streamer, so the arena stayed at the family default regardless —
+verified by watching the per-layer slab size respond (96 → 162 MiB, 64 → 108 MiB).
+
+**2. Optional thinking mode for Qwen 3.6** — the checkpoint's own chat template
+opens a live `<think>` block, but Mference pins the family as non-thinking.
+`MFERENCE_QWEN36_THINKING=1` switches the prompt suffix and the stop token
+together, per family, the way the eos/end-of-turn contract expects. Off by
+default.
+
+**3. Repack disk check counts APFS purgeable space** — `statfs` ignores
+purgeable space on macOS, so repacks refused to start with tens of recoverable
+GB on the volume. The check now also consults
+`volumeAvailableCapacityForImportantUsage` and takes the larger value.
+
+---
+
 Mixture-of-experts models activate only a few billion (cough) parameters per token.
 Mference builds on that: it keeps each model's shared core and KV cache in
 memory, then streams just the experts chosen for each token from SSD. The
