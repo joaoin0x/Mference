@@ -283,7 +283,14 @@ public struct MFTokenizer: @unchecked Sendable {
         // a live `<think>` block and stop on `<|im_end|>`; the eos ==
         // end-of-turn identity is what `generationPromptStartsInThinking`
         // keys off. A nil family keeps the Qwen 3.6 (non-thinking) behavior.
+        // PATCH LOCAL (experiencia): o Qwen 3.6 e hibrido — o chat_template.jinja do
+        // proprio checkpoint abre um <think> vivo quando enable_thinking nao e falso.
+        // Activar pela familia (e nao pelo booleano derivado) troca em conjunto o
+        // sufixo do prompt E o token de paragem, que e o que a relacao eos/end-of-turn
+        // existe para garantir. Ligado so com MFERENCE_QWEN36_THINKING=1.
+        let permitir36 = ProcessInfo.processInfo.environment["MFERENCE_QWEN36_THINKING"] == "1"
         let startsInThinking = family == .maple || family == .qwen38
+            || (permitir36 && family == .qwen36)
         return ResolvedSpecialTokens(
             bosID: endOfText,
             bosPrefixID: nil,
