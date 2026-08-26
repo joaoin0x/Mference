@@ -52,7 +52,15 @@ public enum DiskSpaceChecker {
         if statfs(path, &st) != 0 {
             throw RepackError.fileStatFailed(path: path, errno: errno)
         }
-        let available = UInt64(st.f_bavail) * UInt64(st.f_bsize)
+        // PATCH LOCAL: statfs ignora espaco purgeable no macOS (APFS).
+        // Usar a chave da Foundation que reflecte o espaco realmente utilizavel.
+        var available = UInt64(st.f_bavail) * UInt64(st.f_bsize)
+        if let vals = try? URL(fileURLWithPath: path)
+            .resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
+           let important = vals.volumeAvailableCapacityForImportantUsage,
+           important > 0 {
+            available = max(available, UInt64(important))
+        }
         let sum = bytes.addingReportingOverflow(reserveBytes)
         guard !sum.overflow else {
             throw RepackError.configurationInvalid(
