@@ -97,11 +97,39 @@ long-prompt prefill and 4× slower decode, even though its measured footprint
 is the smallest of the table (file-backed clean pages barely register as RSS).
 `resident` is only the right call where the pool actually fits in RAM.
 
+**Round 2 — same protocol, quiet machine (overnight, free memory 68–86%),
+extended to the values this fork unlocks:**
+
+| Slots per layer | decode short | decode medium | decode long | Long prefill | Peak RSS |
+|---|---|---|---|---|---|
+| 32 | 17.9 | 16.0 | 12.6 | 49.0 s | 2.1 GiB |
+| 64 ¹ | 23.2 | 22.6 | 18.8 | 54.5 s | 4.0 GiB |
+| 96 | 24.3 | 23.8 | 19.4 | 52.1 s | 4.8 GiB |
+| 128 | 25.9 | 24.7 | 21.2 | 54.3 s | 4.9 GiB |
+| **160** | **27.4** | **28.3** | **23.7** | 51.3 s | 5.3–5.8 GiB |
+| 192 ² | — | — | 17.6 | **381.1 s** | — |
+| 256 ² | — | — | **DNF** | — | — |
+| `resident` | 20.1 | 20.6 | 9.8 | 413.5 s | 0.3 GiB |
+
+¹ Sentinel run at the end of the chain; the chain's first 64-slot config hit
+ambient interference (long-case spread 10.4–16.5 tok/s vs ≤0.8 everywhere
+else) and was discarded — that is what sentinels are for.
+² Single guarded long-synthesis probes, outside the full protocol. 192
+completed but its 13 GB arena already exceeds comfortable RAM: prefill took
+381 s (7× the slot-mode norm) and decode trailed 128. 256 (17.3 GB arena) did
+not finish within a 25-minute cap. On 24 GB, the cliff is right after 160.
+
+Two findings the two rounds give jointly: a quiet machine lifts every
+configuration (the page cache absorbs slot misses — compare 96: 19.4 vs 18.1,
+or 64: 18.8 vs 13.9), and the optimum moves with co-located memory use.
+**160 is the overnight/dedicated champion; 96–128 the balanced daily pick;
+64 the defensive choice when heavy jobs share the RAM; `resident` and ≥192
+belong to bigger hosts.**
+
 Server-side (32k context), the writable set measured 7.4 GB at 96 slots vs
-4.4 GB at 64. On a 24 GB host that also runs Docker and friends, trading some
-decode speed for a smaller swappable working set is what keeps the server
-responsive under system memory pressure — this fork currently runs 64 in
-production.
+4.4 GB at 64 — on a 24 GB host that also runs Docker and friends, that
+difference is what keeps the server responsive under system memory pressure.
+This fork currently runs 64 in production.
 
 **2. Optional thinking mode for Qwen 3.6** — the checkpoint's own chat template
 opens a live `<think>` block, but Mference pins the family as non-thinking.
