@@ -251,8 +251,12 @@ public actor ServerModelSession: ServerInferenceBackend {
         let integridade: ModelIntegrityPolicy =
             amb["MFERENCE_TRUST_RECEIPT"] == "1" ? .sizeCheckTrustedReceipt : .fullSha256
 
+        // A app Mac expoe a escolha LFU/LRU; o servidor nao expunha nada.
+        let politicaCache: RuntimeExpertCachePolicy =
+            amb["MFERENCE_EXPERT_CACHE_POLICY"] == "lru" ? .lru : .lfu
         let runtime = RuntimeConfiguration(
             expertCacheSlots: usarSlots,
+            expertCachePolicy: politicaCache,
             rdadvisePolicy: rd,
             prefillChunkTokens: usarChunk,
             forceLogitsHead: true)

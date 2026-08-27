@@ -49,8 +49,28 @@ the knobs `MferenceCLI` already has:
 | `MFERENCE_RDADVISE=adaptive` | Expert read-ahead policy (`off`/`default`/`bounded`/`adaptive`) | Always off |
 | `MFERENCE_PREFILL_CHUNK=512` | Prefill chunk size in tokens | Fixed 128 |
 | `MFERENCE_EXPERT_SLOTS=64` | Routed-expert cache slots per layer | Family default (96 for Qwen 3.6 on ≥24 GiB) |
+| `MFERENCE_EXPERT_CACHE_POLICY=lru` | Expert eviction policy (`lfu`/`lru`) | Always LFU (the Mac app exposes this; the server didn't) |
 
 All default to upstream behaviour when unset.
+
+*LFU vs LRU, measured* — server at 32k context, 96 slots, machine under normal
+interactive use; three ~5k-token tasks from different domains per policy, fresh
+process per policy, first task cold, next two warm; 600-token decode measured
+via streaming TTFT split. A repeated cold LFU run at the end landed within 0.6%
+of the first, validating the round:
+
+| Task | LFU decode | LRU decode | LFU edge |
+|---|---|---|---|
+| Tech docs (cold start) | 14.2 tok/s | 11.9 tok/s | **+19%** |
+| Meeting transcript (warm) | 16.6 tok/s | 14.9 tok/s | +11% |
+| Source code (warm) | 17.0 tok/s | 15.5 tok/s | +9% |
+
+LFU wins even from a cold start because the frequency profile forms during the
+task's own prefill (a 5k-token prompt routes ~40k expert activations per layer
+before the first output token). Warm prefill was also consistently faster under
+LFU (62–74 s vs 76–87 s) — the carried cache retained more reusable experts
+across task switches. Upstream's LFU default holds; the knob exists for other
+workloads.
 
 *Measured* — same ~2.8k-token prompt, back-to-back on an M4 24 GB, Qwen 3.6
 35B-A3B, 64-token completions, direct against the server:
