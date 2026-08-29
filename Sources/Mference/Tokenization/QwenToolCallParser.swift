@@ -17,11 +17,22 @@ import Foundation
 public struct QwenToolCallParser: Sendable {
     public static let maximumBytes = 256 * 1024
 
+    /// Strict tool-name validation is opt-in. Rejecting an unknown name used
+    /// to kill the whole stream with a 500, which left the client session
+    /// permanently broken: every retry replayed the same history and the
+    /// model re-emitted the same unknown call (measured 2026-08-28 with a
+    /// stale "use process (...)" hint in an OpenClaw session — three retries,
+    /// three identical 500s). Emitting the call and letting the client refuse
+    /// it as a tool result lets the model self-correct on the next turn.
+    public static let strictTools =
+        ProcessInfo.processInfo.environment["MFERENCE_TOOL_STRICT"] == "1"
+
     public init() {}
 
     public func parse(_ text: String,
                       allowedTools: Set<String>,
-                      id: String) throws -> ParsedToolCall {
+                      id: String,
+                      strict: Bool = QwenToolCallParser.strictTools) throws -> ParsedToolCall {
         guard text.utf8.count <= Self.maximumBytes else {
             throw ToolCallParserError.oversized
         }
@@ -32,7 +43,7 @@ public struct QwenToolCallParser: Sendable {
         guard isValidFunctionName(name) else {
             throw ToolCallParserError.malformed
         }
-        guard allowedTools.contains(name) else {
+        if strict, !allowedTools.contains(name) {
             throw ToolCallParserError.unknownTool(name)
         }
 

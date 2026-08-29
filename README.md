@@ -50,8 +50,16 @@ the knobs `MferenceCLI` already has:
 | `MFERENCE_PREFILL_CHUNK=512` | Prefill chunk size in tokens | Fixed 128 |
 | `MFERENCE_EXPERT_SLOTS=64` | Routed-expert cache slots per layer | Family default (96 for Qwen 3.6 on ≥24 GiB) |
 | `MFERENCE_EXPERT_CACHE_POLICY=lru` | Expert eviction policy (`lfu`/`lru`) | Always LFU (the Mac app exposes this; the server didn't) |
+| `MFERENCE_TOOL_STRICT=1` | Reject tool calls whose name is not in the request's tool list (500) | Always strict |
 
-All default to upstream behaviour when unset.
+All default to upstream behaviour when unset — except tool-name validation,
+which is now lenient by default: an unknown tool name is emitted as a normal
+tool call for the client to refuse, instead of failing the whole stream with
+a 500. The strict behaviour left agent sessions permanently broken — every
+retry replayed the same history and the model re-emitted the same unknown
+call (measured 2026-08-28: three retries, three identical
+`unknownTool("process")` 500s). Set `MFERENCE_TOOL_STRICT=1` to restore the
+upstream behaviour.
 
 *LFU vs LRU, measured* — server at 32k context, 96 slots, machine under normal
 interactive use; three ~5k-token tasks from different domains per policy, fresh

@@ -122,10 +122,20 @@ struct QwenToolCallParserTests {
         #expect(call.arguments == .object(["q": .string("")]))
     }
 
-    @Test("Unknown tools fail closed")
-    func unknownTool() {
+    @Test("Unknown tools parse open by default — the client refuses them")
+    func unknownToolLenient() throws {
+        let call = try parse("\n<function=secret_tool>\n</function>\n")
+        #expect(call.name == "secret_tool")
+        #expect(call.arguments == .object([:]))
+    }
+
+    @Test("Unknown tools fail closed in strict mode (MFERENCE_TOOL_STRICT=1)")
+    func unknownToolStrict() {
         #expect(throws: ToolCallParserError.unknownTool("secret_tool")) {
-            _ = try parse("\n<function=secret_tool>\n</function>\n")
+            _ = try parser.parse("\n<function=secret_tool>\n</function>\n",
+                                 allowedTools: tools,
+                                 id: "call_test",
+                                 strict: true)
         }
     }
 

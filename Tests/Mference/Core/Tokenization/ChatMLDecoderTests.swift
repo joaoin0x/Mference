@@ -81,14 +81,23 @@ struct ChatMLDecoderTests {
         _ = try d.finish()
     }
 
-    @Test("Unknown tool inside a call fails closed")
-    func unknownToolFails() {
+    @Test("Unknown tool inside a call is emitted for the client to refuse")
+    func unknownToolEmitted() throws {
+        // Fail-closed matava o stream inteiro com 500 e deixava a sessão do
+        // cliente irrecuperável (o histórico reproduzia a mesma chamada em
+        // cada retry). O caminho estrito continua coberto no teste do parser
+        // (strict: true / MFERENCE_TOOL_STRICT=1).
         let d = decoder(allowedTools: [])
-        #expect(throws: ToolCallParserError.unknownTool("get_weather")) {
-            _ = try feed(
-                "<tool_call>\n<function=get_weather>\n</function>\n</tool_call>",
-                into: d)
-        }
+        let events = try feed(
+            "<tool_call>\n<function=get_weather>\n</function>\n</tool_call>",
+            into: d)
+        #expect(events == [.toolCall(ParsedToolCall(
+            id: "call_fixed",
+            name: "get_weather",
+            arguments: .object([:]),
+            argumentsJSON: "{}"))])
+        #expect(d.hasToolCalls)
+        _ = try d.finish()
     }
 
     @Test("Nested tool-call start is malformed")
